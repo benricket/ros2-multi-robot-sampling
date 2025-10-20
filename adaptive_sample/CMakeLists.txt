@@ -27,14 +27,42 @@ GIT_TAG        main
 )
 FetchContent_MakeAvailable(gauss_process)
 
-add_executable(orchestrator src/orchestrator.cpp src/sampler.cpp)
+add_executable(orchestrator 
+  src/orchestrator.cpp 
+  src/orchestrator.hpp 
+)
+
+add_executable(simple_robot
+  src/sampler.cpp
+  src/sampler.hpp
+  src/simple_robot.cpp
+  src/simple_robot.hpp
+)
+
 ament_target_dependencies(orchestrator rclcpp std_msgs sampling_interfaces)
+ament_target_dependencies(simple_robot rclcpp std_msgs sampling_interfaces)
 
 target_include_directories(orchestrator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(orchestrator Eigen3::Eigen GaussianProcess)
 target_compile_features(orchestrator PUBLIC c_std_99 cxx_std_17)
+
+target_include_directories(simple_robot PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(orchestrator PUBLIC c_std_99 cxx_std_17)
+
+# Install launch files.
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
+)
+
+install(TARGETS
+  orchestrator simple_robot
+  DESTINATION lib/${PROJECT_NAME} 
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
