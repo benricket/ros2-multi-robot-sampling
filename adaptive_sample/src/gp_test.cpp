@@ -92,7 +92,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   visualize_model();
 
   ++add_count;
-  if (add_count > 4) {
+  if (add_count > 15) {
     add_count = 0;
     retrain_hyperparams();
   }
