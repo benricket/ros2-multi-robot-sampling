@@ -16,6 +16,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(sampling_interfaces REQUIRED)
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
@@ -39,8 +40,18 @@ add_executable(simple_robot
   src/simple_robot.hpp
 )
 
+add_executable(gp_test
+  src/gp_test.cpp
+)
+
+add_executable(gp_test_pub
+  src/gp_test_pub.cpp
+)
+
 ament_target_dependencies(orchestrator rclcpp std_msgs sampling_interfaces)
 ament_target_dependencies(simple_robot rclcpp std_msgs sampling_interfaces)
+ament_target_dependencies(gp_test rclcpp std_msgs sampling_interfaces visualization_msgs)
+ament_target_dependencies(gp_test_pub rclcpp std_msgs sampling_interfaces)
 
 target_include_directories(orchestrator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -48,10 +59,21 @@ target_include_directories(orchestrator PUBLIC
 target_link_libraries(orchestrator Eigen3::Eigen GaussianProcess)
 target_compile_features(orchestrator PUBLIC c_std_99 cxx_std_17)
 
+target_include_directories(gp_test PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_link_libraries(gp_test Eigen3::Eigen GaussianProcess)
+target_compile_features(gp_test PUBLIC c_std_99 cxx_std_17)
+
 target_include_directories(simple_robot PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_compile_features(orchestrator PUBLIC c_std_99 cxx_std_17)
+target_compile_features(simple_robot PUBLIC c_std_99 cxx_std_17)
+
+target_include_directories(gp_test_pub PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(gp_test_pub PUBLIC c_std_99 cxx_std_17)
 
 # Install launch files.
 install(DIRECTORY
@@ -60,7 +82,7 @@ install(DIRECTORY
 )
 
 install(TARGETS
-  orchestrator simple_robot
+  orchestrator simple_robot gp_test gp_test_pub
   DESTINATION lib/${PROJECT_NAME} 
 )
 
