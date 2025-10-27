@@ -48,6 +48,10 @@ add_executable(gp_test_pub
   src/gp_test_pub.cpp
 )
 
+add_executable(gp_test_dist
+  src/gp_test_distance.cpp
+)
+
 add_executable(gp_test_func
   src/gp_test_func.cpp
 )
@@ -57,6 +61,7 @@ ament_target_dependencies(simple_robot rclcpp std_msgs sampling_interfaces)
 ament_target_dependencies(gp_test rclcpp std_msgs sampling_interfaces visualization_msgs)
 ament_target_dependencies(gp_test_pub rclcpp std_msgs sampling_interfaces)
 ament_target_dependencies(gp_test_func rclcpp std_msgs sampling_interfaces)
+ament_target_dependencies(gp_test_dist rclcpp std_msgs sampling_interfaces)
 
 target_include_directories(orchestrator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -80,6 +85,11 @@ target_include_directories(gp_test_pub PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(gp_test_pub PUBLIC c_std_99 cxx_std_17)
 
+target_include_directories(gp_test_dist PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(gp_test_pub PUBLIC c_std_99 cxx_std_17)
+
 target_include_directories(gp_test_func PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -92,7 +102,7 @@ install(DIRECTORY
 )
 
 install(TARGETS
-  orchestrator simple_robot gp_test gp_test_pub gp_test_func
+  orchestrator simple_robot gp_test gp_test_pub gp_test_func gp_test_dist
   DESTINATION lib/${PROJECT_NAME} 
 )
 

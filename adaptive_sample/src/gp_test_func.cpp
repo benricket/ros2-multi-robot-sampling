@@ -19,7 +19,7 @@ using sampling_interfaces::msg::SampleReturnArray;
 class FunctionPub : public rclcpp::Node {
     public:
         FunctionPub() : Node("sampler"), rd(), rand_gen(rd()), 
-        x_dist(0,10), y_dist(0,10) {
+        x_dist(0,10), y_dist(0,10), noise_dist(0.0,0.05) {
             pub = this->create_publisher<SampleReturn>("/sample_in",10);
             timer_ = this->create_wall_timer(
                 500ms, std::bind(&FunctionPub::timer_callback, this));
@@ -42,7 +42,10 @@ class FunctionPub : public rclcpp::Node {
             SampleReturn msg;
             msg.pose_stamped.pose.position.x = x;
             msg.pose_stamped.pose.position.y = y;
-            msg.reading = eval_donut(x,y);
+            msg.reading = eval_normal(x,y);
+
+            // Add noise to reading
+            msg.reading += noise_dist(rand_gen);
             pub->publish(msg);
         }
     private:
@@ -52,6 +55,7 @@ class FunctionPub : public rclcpp::Node {
         std::mt19937 rand_gen;
         std::uniform_real_distribution<> x_dist;
         std::uniform_real_distribution<> y_dist;
+        std::normal_distribution<> noise_dist;
 
         double map_x_min;
         double map_x_max;

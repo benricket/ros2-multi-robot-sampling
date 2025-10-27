@@ -30,13 +30,19 @@ class GPTest : public rclcpp::Node
       timer_ = this->create_wall_timer(
         500ms, std::bind(&GPTest::timer_callback, this));
       data_sub = this->create_subscription<SampleReturn>("/sample_in",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
+      loc_sub = this->create_subscription<SampleReturn>("/loc_in",10,std::bind(&GPTest::upload_position_callback,this,std::placeholders::_1));
       vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
+      vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
 
       // Define map bounds
       map_x_max = 10.0;
       map_x_min = 0.0;
       map_y_max = 10.0;
       map_y_min = 0.0;
+
+      res_x = 100;
+      res_y = 100;
+      num_cells = res_x * res_y;
     }
 
   private:
@@ -50,6 +56,10 @@ class GPTest : public rclcpp::Node
     std::pair<double,double> predict(Eigen::Vector2d loc);
     void query_waypoint_callback(const std_msgs::msg::String& msg);
     void upload_data_callback(const SampleReturn& msg);
+    void upload_position_callback(const SampleReturn& msg);
+    std::vector<double> compute_reward(double var_weight);
+    std::vector<double> weight_model_distance(double x, double y, double dist_weight, double var_weight);
+    void display_scalar_field(std::vector<double> values,rclcpp::Publisher<MarkerArray>::SharedPtr& pub);
     void visualize_model();
     void retrain_hyperparams();
     std::tuple<float,float,float> colormap(double in, double max, double min);
@@ -62,12 +72,18 @@ class GPTest : public rclcpp::Node
     gauss::gp::KernelFunctionPtr kernel_func;
     gauss::gp::GaussianProcess gauss_process;
     rclcpp::Subscription<SampleReturn>::SharedPtr data_sub;
+    rclcpp::Subscription<SampleReturn>::SharedPtr loc_sub;
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_pub;
+    rclcpp::Publisher<MarkerArray>::SharedPtr vis_scaled_pub;
 
     double map_x_min;
     double map_x_max;
     double map_y_min;
     double map_y_max;
+
+    int res_x;
+    int res_y;
+    int num_cells;
 
     int add_count;
 
@@ -98,10 +114,94 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   }
 }
 
+void GPTest::upload_position_callback(const SampleReturn& msg) {
+  double x = msg.pose_stamped.pose.position.x;
+  double y = msg.pose_stamped.pose.position.y;
+
+  std::vector<double> rewards = weight_model_distance(x,y,0.1,0.0);
+  display_scalar_field(rewards,vis_scaled_pub);
+}
+
 void GPTest::retrain_hyperparams() {
   RCLCPP_INFO(this->get_logger(), "Retraining hyperparameters");
   train::GradientDescendFixed gradient_descender;
   gauss::gp::train(gauss_process,gradient_descender);
+}
+
+std::vector<double> GPTest::compute_reward(double var_weight = 0.1) {
+  std::vector<double> reward_arr(num_cells);
+  for (int i = 0; i < res_x; ++i) {
+    double x = map_x_min + (double) (i * (map_x_max - map_x_min)) / (double)res_x; 
+    for (int j = 0; j < res_y; ++j) {
+      double y = map_y_min + (double) (j * (map_y_max - map_y_min)) / (double)res_y; 
+      Eigen::Vector2d loc(x,y);
+      std::pair<double,double> val = predict(loc);
+      double mean = val.first;
+      double var = val.second;
+
+      // Upper confidence bound reward
+      reward_arr[i*res_x + j] = mean + var_weight * var;
+    }
+  }
+  return reward_arr;
+}
+
+std::vector<double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.5, double var_weight = 0.0) {
+  std::vector<double> rewards = compute_reward(var_weight);
+  std::vector<double> rewards_scaled(num_cells);
+  double reward_scale_max = 0;
+  int waypt_x = 0;
+  int waypt_y = 0;
+
+  for (int i = 0; i < num_cells; ++i) {
+    int x_index = i / res_x;
+    int y_index = i % res_x;
+    double x_cell = map_x_min + (double) (x_index * (map_x_max - map_x_min)) / (double)res_x;
+    double y_cell = map_y_min + (double) (y_index * (map_y_max - map_y_min)) / (double)res_y;
+    double reward = rewards[i];
+
+    double dist = sqrt(pow(x - x_cell,2)+pow(y - y_cell,2));
+    double reward_scaled = reward - dist_weight * dist;
+    rewards_scaled[i] = reward_scaled;
+    if (reward_scaled > reward_scale_max) {
+      reward_scale_max = reward_scaled;
+      waypt_x = x_cell;
+      waypt_y = y_cell;
+    }
+  }
+  return rewards_scaled;
+}
+
+void GPTest::display_scalar_field(std::vector<double> values,rclcpp::Publisher<MarkerArray>::SharedPtr& pub) {
+  double value_max = *std::max_element(values.begin(),values.end());
+  double value_min = *std::min_element(values.begin(),values.end());
+  std::vector<visualization_msgs::msg::Marker> markers(num_cells);
+
+  for (int i = 0; i < num_cells; ++i) {
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "map";
+    int i_index = i / res_x;
+    int j_index = i % res_x;
+    marker.pose.position.x = map_x_min + (double) (i_index * (map_x_max - map_x_min)) / (double)res_x;
+    marker.pose.position.y = map_y_min + (double) (j_index * (map_y_max - map_y_min)) / (double)res_y;
+    marker.pose.position.z = 0.0;
+    std::tuple<float,float,float> color = colormap(values[i],value_max,value_min);
+    marker.color.r = std::get<0>(color);
+    marker.color.g = std::get<1>(color);
+    marker.color.b = std::get<2>(color);
+    marker.color.a = 1.0;
+    marker.scale.x = 1.0 * (map_x_max - map_x_min) / (double)res_x;
+    marker.scale.y = 1.0 * (map_y_max - map_y_min) / (double)res_y;
+    marker.scale.z = 1.0;
+    marker.type = 1;
+    marker.id = i;
+    markers[i] = marker;
+  }
+
+  // Publish marker array
+  MarkerArray arr;
+  arr.markers = markers;
+  pub->publish(arr);
 }
 
 void GPTest::visualize_model() {
