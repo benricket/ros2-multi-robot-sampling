@@ -10,13 +10,16 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "sampling_interfaces/msg/sample_return.hpp"
 #include "sampling_interfaces/msg/sample_return_array.hpp"
+#include "geometry_msgs/msg/pose.hpp"
 
 using namespace std::chrono_literals;
 using sampling_interfaces::msg::SampleReturn;
 using sampling_interfaces::msg::SampleReturnArray;
+using std_msgs::msg::Float32MultiArray;
 using visualization_msgs::msg::MarkerArray;
 
 class GPTest : public rclcpp::Node
@@ -33,6 +36,11 @@ class GPTest : public rclcpp::Node
       loc_sub = this->create_subscription<SampleReturn>("/loc_in",10,std::bind(&GPTest::upload_position_callback,this,std::placeholders::_1));
       vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
       vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
+      my_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/my_loc",10);
+      target_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/target_loc",10);
+
+      // waypoint pub (just one for now)
+      waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
 
       // Define map bounds
       map_x_max = 10.0;
@@ -58,7 +66,7 @@ class GPTest : public rclcpp::Node
     void upload_data_callback(const SampleReturn& msg);
     void upload_position_callback(const SampleReturn& msg);
     std::vector<double> compute_reward(double var_weight);
-    std::vector<double> weight_model_distance(double x, double y, double dist_weight, double var_weight);
+    std::pair<double,double> weight_model_distance(double x, double y, double dist_weight, double var_weight);
     void display_scalar_field(std::vector<double> values,rclcpp::Publisher<MarkerArray>::SharedPtr& pub);
     void visualize_model();
     void retrain_hyperparams();
@@ -75,6 +83,9 @@ class GPTest : public rclcpp::Node
     rclcpp::Subscription<SampleReturn>::SharedPtr loc_sub;
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_pub;
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_scaled_pub;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr my_loc_pub;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_loc_pub;
+    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr waypt_pub;
 
     double map_x_min;
     double map_x_max;
@@ -118,8 +129,44 @@ void GPTest::upload_position_callback(const SampleReturn& msg) {
   double x = msg.pose_stamped.pose.position.x;
   double y = msg.pose_stamped.pose.position.y;
 
-  std::vector<double> rewards = weight_model_distance(x,y,0.1,0.0);
-  display_scalar_field(rewards,vis_scaled_pub);
+  // Publish input location
+  visualization_msgs::msg::Marker my_loc;
+  my_loc.pose.position.x = x;
+  my_loc.pose.position.y = y;
+  my_loc.pose.position.z = 0.5;
+  my_loc.scale.x = 1.0;
+  my_loc.scale.y = 1.0;
+  my_loc.scale.z = 1.0;
+  my_loc.color.r = 1.0;
+  my_loc.color.g = 1.0;
+  my_loc.color.b = 1.0;
+  my_loc.color.a = 1.0;
+  my_loc_pub->publish(my_loc);
+
+  // Calculate target point and visualize weights
+  std::pair<double,double> waypoint = weight_model_distance(x,y,0.1,0.0);
+  double waypt_x = waypoint.first;
+  double waypt_y = waypoint.second;
+
+  // Upload waypoint
+  geometry_msgs::msg::Pose pt;
+  pt.position.x = waypt_x;
+  pt.position.y = waypt_y;
+  this->waypt_pub->publish(pt);
+
+  // Publish target location
+  visualization_msgs::msg::Marker target_loc;
+  target_loc.pose.position.x = waypt_x;
+  target_loc.pose.position.y = waypt_y;
+  target_loc.pose.position.z = 0.5;
+  target_loc.scale.x = 1.0;
+  target_loc.scale.y = 1.0;
+  target_loc.scale.z = 1.0;
+  target_loc.color.r = 0.0;
+  target_loc.color.g = 1.0;
+  target_loc.color.b = 0.0;
+  target_loc.color.a = 1.0;
+  target_loc_pub->publish(target_loc);
 }
 
 void GPTest::retrain_hyperparams() {
@@ -146,7 +193,7 @@ std::vector<double> GPTest::compute_reward(double var_weight = 0.1) {
   return reward_arr;
 }
 
-std::vector<double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.5, double var_weight = 0.0) {
+std::pair<double,double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.5, double var_weight = 0.0) {
   std::vector<double> rewards = compute_reward(var_weight);
   std::vector<double> rewards_scaled(num_cells);
   double reward_scale_max = 0;
@@ -169,7 +216,8 @@ std::vector<double> GPTest::weight_model_distance(double x, double y, double dis
       waypt_y = y_cell;
     }
   }
-  return rewards_scaled;
+  display_scalar_field(rewards_scaled,vis_scaled_pub);
+  return std::pair<double,double>(waypt_x,waypt_y);
 }
 
 void GPTest::display_scalar_field(std::vector<double> values,rclcpp::Publisher<MarkerArray>::SharedPtr& pub) {
