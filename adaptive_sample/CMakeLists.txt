@@ -30,7 +30,6 @@ FetchContent_MakeAvailable(gauss_process)
 
 add_executable(orchestrator 
   src/orchestrator.cpp 
-  src/orchestrator.hpp 
 )
 
 add_executable(simple_robot
@@ -38,10 +37,6 @@ add_executable(simple_robot
   src/sampler.hpp
   src/simple_robot.cpp
   src/simple_robot.hpp
-)
-
-add_executable(gp_test
-  src/gp_test.cpp
 )
 
 add_executable(gp_test_pub
@@ -56,9 +51,8 @@ add_executable(gp_test_func
   src/gp_test_func.cpp
 )
 
-ament_target_dependencies(orchestrator rclcpp std_msgs sampling_interfaces)
+ament_target_dependencies(orchestrator rclcpp std_msgs sampling_interfaces visualization_msgs)
 ament_target_dependencies(simple_robot rclcpp std_msgs sampling_interfaces)
-ament_target_dependencies(gp_test rclcpp std_msgs sampling_interfaces visualization_msgs)
 ament_target_dependencies(gp_test_pub rclcpp std_msgs sampling_interfaces)
 ament_target_dependencies(gp_test_func rclcpp std_msgs sampling_interfaces)
 ament_target_dependencies(gp_test_dist rclcpp std_msgs sampling_interfaces)
@@ -68,12 +62,6 @@ target_include_directories(orchestrator PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(orchestrator Eigen3::Eigen GaussianProcess)
 target_compile_features(orchestrator PUBLIC c_std_99 cxx_std_17)
-
-target_include_directories(gp_test PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
-target_link_libraries(gp_test Eigen3::Eigen GaussianProcess)
-target_compile_features(gp_test PUBLIC c_std_99 cxx_std_17)
 
 target_include_directories(simple_robot PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -102,7 +90,7 @@ install(DIRECTORY
 )
 
 install(TARGETS
-  orchestrator simple_robot gp_test gp_test_pub gp_test_func gp_test_dist
+  orchestrator simple_robot gp_test_pub gp_test_func gp_test_dist
   DESTINATION lib/${PROJECT_NAME} 
 )
 
