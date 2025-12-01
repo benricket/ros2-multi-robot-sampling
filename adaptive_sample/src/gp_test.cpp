@@ -168,7 +168,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   my_loc_pub->publish(my_loc);
 
   // Calculate target point and visualize weights
-  std::pair<double,double> waypoint = weight_model_distance(x,y,0.1,0.0);
+  std::pair<double,double> waypoint = weight_model_distance(x,y,0.01,10.0);
   double waypt_x = waypoint.first;
   double waypt_y = waypoint.second;
 

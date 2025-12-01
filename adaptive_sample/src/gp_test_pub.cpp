@@ -18,8 +18,8 @@ using sampling_interfaces::msg::SampleReturnArray;
 class SamplePub : public rclcpp::Node {
     public:
         SamplePub() : Node("gp_test_pub") {
-            pub = this->create_publisher<SampleReturn>("/sample_in",10);
-            waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
+            pub = this->create_publisher<SampleReturn>("sample_in",10);
+            waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("waypt_in",10);
             timer_ = this->create_wall_timer(
                 500ms, std::bind(&SamplePub::timer_callback, this));
         }

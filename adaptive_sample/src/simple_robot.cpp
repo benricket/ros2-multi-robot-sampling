@@ -8,13 +8,14 @@ using geometry_msgs::msg::PoseStamped;
 class SimpleRobot : public Sampler {
     public:
         SimpleRobot() : Sampler() {
-            speed = 0.4;
+            speed = 1.0;
             //std::string pos_topic = "/robot" + std::to_string(this->id) + "/pos"; removed in favor of namespace
             pos_pub = this->create_publisher<PoseStamped>("pos", 10);
             target_pub = this->create_publisher<PoseStamped>("target",10);
             waypt_sub = this->create_subscription<geometry_msgs::msg::Pose>("waypt_in",10,std::bind(&SimpleRobot::waypt_callback,this,std::placeholders::_1));
             timer_ = this->create_wall_timer(
-                1s, std::bind(&SimpleRobot::timer_callback, this));
+                100ms, std::bind(&SimpleRobot::timer_callback, this));
+            last_time_moved = this->get_clock().get()->now().seconds();
         }
     private:
         geometry_msgs::msg::Pose move_towards_waypoint(geometry_msgs::msg::Pose waypoint);
@@ -60,7 +61,7 @@ void SimpleRobot::timer_callback() {
   geometry_msgs::msg::Pose target = this->waypts.front();
   geometry_msgs::msg::Pose new_pose = this->pose;
   double x_f = target.position.x;
-  double y_f = target.position.x;
+  double y_f = target.position.y;
   
   // Publish my target waypoint
   geometry_msgs::msg::PoseStamped target_pos;

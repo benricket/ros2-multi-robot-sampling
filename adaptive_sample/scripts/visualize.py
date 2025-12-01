@@ -11,36 +11,62 @@ from geometry_msgs.msg import Pose, PoseStamped
 class Visualizer(Node):
     def __init__(self):
         super().__init__("matplotlib_visualizer")
-        self.timer = self.create_timer(0.5,self.timer_callback)
+        # fields to hold data
+        self.model_data = np.zeros(shape=(100,100))
+        self.robot_pose = [0.0,0.0]
+        self.robot_target = [0.0,0.0]
+
+        self.timer = self.create_timer(0.01,self.timer_callback)
         self.fig, self.ax = plt.subplots(1,1)
+        self.model_drawn = self.ax.imshow(self.model_data,extent=[0,10.0,0,10.0])
+        self.robot_drawn, = self.ax.plot(self.robot_pose[0],self.robot_pose[1],'o',color='white',markersize=10)
+        self.target_drawn, = self.ax.plot(self.robot_target[0],self.robot_target[1],'o',color='red',markersize=10)
+
         plt.ion()
+        plt.show()
         
         # Initialize Subscribers
         self.field_sub = self.create_subscription(MarkerArray,"/model_vis",self.model_vis_callback,10)
         self.robot_pose_sub = self.create_subscription(PoseStamped,"/robot999/pos",self.robot_pose_callback,10)
-        
-        # fields to hold data
-        self.model_data = np.zeros(shape=(100,100))
-        self.robot_pose = [0.0,0.0]
+        self.robot_target_sub = self.create_subscription(PoseStamped,"/robot999/target",self.robot_target_callback,10)
 
+    # TODO pass actual data rather than extracting data from marker colors
     def model_vis_callback(self,msg: MarkerArray):
         res_x = 100
         res_y = 100
         data = np.zeros(shape=(res_x,res_y))
         for i,marker in enumerate(msg.markers):
             data[i % res_x,i // res_y] = marker.color.r
+            #data[i % res_x, i // res_y] = i % res_x + i // res_y
+        print(f"Got model data: {data}")
+        print(f"Min data: {np.min(data)}")
+        print(f"Max data: {np.max(data)}")
         self.model_data = data
     
     def robot_pose_callback(self,msg: PoseStamped):
         x = msg.pose.position.x
         y = msg.pose.position.y
         self.robot_pose = [x,y]
+
+    def robot_target_callback(self,msg: PoseStamped):
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        self.robot_target = [x,y]
         
     def timer_callback(self):
         print(f"timer callback: pose is {self.robot_pose}")
-        self.ax.imshow(self.model_data)
-        self.ax.plot(self.robot_pose[0],self.robot_pose[1],'o',markersize=100)
-        #self.ax.draw()
+
+        vmin = np.min(self.model_data)
+        vmax = np.max(self.model_data)
+        if vmin == vmax: # We want to cover a range of color in case all our input is the same
+            vmax = vmin + 1e-6
+        self.model_drawn.set_clim(vmin=vmin, vmax=vmax)
+
+        self.model_drawn.set_data(self.model_data)
+        self.robot_drawn.set_data(self.robot_pose[0],self.robot_pose[1])
+        self.target_drawn.set_data(self.robot_target[0],self.robot_target[1])
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
         plt.pause(0.001)
 
 if __name__ == "__main__":
