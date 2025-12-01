@@ -10,7 +10,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "std_msgs/msg/float32_multi_array.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "sampling_interfaces/msg/sample_return.hpp"
 #include "sampling_interfaces/msg/sample_return_array.hpp"
@@ -19,7 +19,7 @@
 using namespace std::chrono_literals;
 using sampling_interfaces::msg::SampleReturn;
 using sampling_interfaces::msg::SampleReturnArray;
-using std_msgs::msg::Float32MultiArray;
+using std_msgs::msg::Float64MultiArray;
 using visualization_msgs::msg::MarkerArray;
 
 class GPTest : public rclcpp::Node
@@ -55,7 +55,9 @@ class GPTest : public rclcpp::Node
       single_data_sub = this->create_subscription<SampleReturn>("/robot999/data",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
       single_waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/robot999/waypt_in",10);
 
-      mpl_vis_pub = this->create_publisher<std_msgs::msg::Float32MultiArray>("/model_vis_mpl",10);
+      mpl_mean_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_mean",10);
+      mpl_var_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_var",10);
+      mpl_cost_unweighted_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost_unweighted",10);
 
       // Define map bounds
       map_x_max = 10.0;
@@ -119,7 +121,9 @@ class GPTest : public rclcpp::Node
     //std::vector<rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr> waypt_pubs;
     rclcpp::Subscription<SampleReturn>::SharedPtr single_data_sub;
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr single_waypt_pub;
-    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr mpl_vis_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_mean_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_var_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_cost_unweighted_pub;
 
     double map_x_min;
     double map_x_max;
@@ -353,13 +357,20 @@ void GPTest::visualize_model() {
     }
   }
 
-  // Make big arr to pass to visualize
-  Float32MultiArray mean_float_arr;
+  // Make big arrays to pass to visualize
+  Float64MultiArray mean_float_arr;
   mean_float_arr.layout.dim.resize(2);
   mean_float_arr.layout.dim[0].stride = res_x * res_y;
   mean_float_arr.layout.dim[1].stride = res_y;
-  mean_float_arr.set__data(mean_float_arr.data);
+  mean_float_arr.data = mean_arr;
+  mpl_mean_pub->publish(mean_float_arr);
 
+  Float64MultiArray var_float_arr;
+  var_float_arr.layout.dim.resize(2);
+  var_float_arr.layout.dim[0].stride = res_x * res_y;
+  var_float_arr.layout.dim[1].stride = res_y;
+  var_float_arr.data = var_arr;
+  mpl_var_pub->publish(var_float_arr);
 
   double mean_max = *std::max_element(mean_arr.begin(),mean_arr.end());
   double mean_min = *std::min_element(mean_arr.begin(),mean_arr.end());
