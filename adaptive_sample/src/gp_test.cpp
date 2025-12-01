@@ -172,7 +172,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   my_loc_pub->publish(my_loc);
 
   // Calculate target point and visualize weights
-  std::pair<double,double> waypoint = weight_model_distance(x,y,0.01,10.0);
+  std::pair<double,double> waypoint = weight_model_distance(x,y,0.2,0.6);
   double waypt_x = waypoint.first;
   double waypt_y = waypoint.second;
 
@@ -181,7 +181,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   pt.position.x = waypt_x;
   pt.position.y = waypt_y;
   this->single_waypt_pub->publish(pt);
-  RCLCPP_INFO(this->get_logger(), "Published new waypoint");
+  RCLCPP_INFO(this->get_logger(), ("Published new waypoint: "+std::to_string(pt.position.x)+std::to_string(pt.position.y)).c_str());
 
   Eigen::Vector3d obs(x,y,reading);
   gauss_process.getTrainSet().addSample(obs);
@@ -280,8 +280,8 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
   std::vector<double> rewards = compute_reward(var_weight);
   std::vector<double> rewards_scaled(num_cells);
   double reward_scale_max = 0;
-  int waypt_x = 0;
-  int waypt_y = 0;
+  double waypt_x = 0;
+  double waypt_y = 0;
 
   for (int i = 0; i < num_cells; ++i) {
     int x_index = i / res_x;
@@ -289,6 +289,7 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
     double x_cell = map_x_min + (double) (x_index * (map_x_max - map_x_min)) / (double)res_x;
     double y_cell = map_y_min + (double) (y_index * (map_y_max - map_y_min)) / (double)res_y;
     double reward = rewards[i];
+    //std::cout << "cells x, y: " << x_cell << ", " << y_cell << std::endl;
 
     double dist = sqrt(pow(x - x_cell,2)+pow(y - y_cell,2));
     double reward_scaled = reward - dist_weight * dist;
@@ -297,6 +298,7 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
       reward_scale_max = reward_scaled;
       waypt_x = x_cell;
       waypt_y = y_cell;
+      //std::cout << "waypt x, y: " << waypt_x << ", " << waypt_y << std::endl;
     }
   }
   display_scalar_field(rewards_scaled,vis_scaled_pub);

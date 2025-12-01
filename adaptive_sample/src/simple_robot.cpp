@@ -98,8 +98,10 @@ void SimpleRobot::sample() {
   sample.pose_stamped.pose = this->pose;
   //sample.reading = this->pose.position.x - this->pose.position.y; // test to be replaced
   // Take a sample and upload it 
+
   // Test reward function --- normal centered at 5,5, longer along x
   double value = exp(-0.25*(pow(this->pose.position.x - 5.0,2)+3.0*pow(this->pose.position.y - 5.0,2)));
+
   sample.reading = value;
   this->upload_data(sample);
 }
