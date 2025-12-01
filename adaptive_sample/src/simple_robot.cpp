@@ -8,7 +8,7 @@ using geometry_msgs::msg::PoseStamped;
 class SimpleRobot : public Sampler {
     public:
         SimpleRobot() : Sampler() {
-            speed = 1.0;
+            speed = 0.5;
             //std::string pos_topic = "/robot" + std::to_string(this->id) + "/pos"; removed in favor of namespace
             pos_pub = this->create_publisher<PoseStamped>("pos", 10);
             target_pub = this->create_publisher<PoseStamped>("target",10);

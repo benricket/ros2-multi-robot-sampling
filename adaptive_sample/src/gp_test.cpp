@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <random>
 #include <GaussianProcess/GaussianProcess.h>
 #include <GaussianProcess/kernel/SquaredExponential.h>
 #include <TrainingTools/iterative/solvers/GradientDescend.h>
@@ -27,8 +28,11 @@ class GPTest : public rclcpp::Node
   public:
     GPTest() : Node("model"), 
     count_(0),
+    rand_gen(std::chrono::system_clock::now().time_since_epoch().count()),
+    waypt_rand(0.0,0.2),
     kernel_func(std::make_unique<gauss::gp::SquaredExponential>(1.0,1.0)),
     gauss_process(std::move(kernel_func),2,1) {
+
       publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
       timer_ = this->create_wall_timer(
         500ms, std::bind(&GPTest::timer_callback, this));
@@ -58,6 +62,7 @@ class GPTest : public rclcpp::Node
       mpl_mean_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_mean",10);
       mpl_var_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_var",10);
       mpl_cost_unweighted_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost_unweighted",10);
+      mpl_cost_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost",10);
 
       // Define map bounds
       map_x_max = 10.0;
@@ -108,6 +113,9 @@ class GPTest : public rclcpp::Node
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
     size_t count_;
 
+    std::mt19937 rand_gen;
+    std::normal_distribution<double> waypt_rand;
+
     // Parameters for sampling setup
     gauss::gp::KernelFunctionPtr kernel_func;
     gauss::gp::GaussianProcess gauss_process;
@@ -124,6 +132,7 @@ class GPTest : public rclcpp::Node
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_mean_pub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_var_pub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_cost_unweighted_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_cost_pub;
 
     double map_x_min;
     double map_x_max;
@@ -172,7 +181,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   my_loc_pub->publish(my_loc);
 
   // Calculate target point and visualize weights
-  std::pair<double,double> waypoint = weight_model_distance(x,y,0.2,0.6);
+  std::pair<double,double> waypoint = weight_model_distance(x,y,0.01,0.1);
   double waypt_x = waypoint.first;
   double waypt_y = waypoint.second;
 
@@ -188,7 +197,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   visualize_model();
 
   ++add_count;
-  if (add_count > 50) {
+  if (add_count > 20) {
     add_count = 0;
     retrain_hyperparams();
   }
@@ -301,7 +310,28 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
       //std::cout << "waypt x, y: " << waypt_x << ", " << waypt_y << std::endl;
     }
   }
+  
+  // Visualize scaled and unscaled scalar fields
+  Float64MultiArray cost_unweighted_arr;
+  cost_unweighted_arr.layout.dim.resize(2);
+  cost_unweighted_arr.layout.dim[0].stride = res_x * res_y;
+  cost_unweighted_arr.layout.dim[1].stride = res_y;
+  cost_unweighted_arr.data = rewards;
+  mpl_cost_unweighted_pub->publish(cost_unweighted_arr);
+  
+  Float64MultiArray cost_arr;
+  cost_arr.layout.dim.resize(2);
+  cost_arr.layout.dim[0].stride = res_x * res_y;
+  cost_arr.layout.dim[1].stride = res_y;
+  cost_arr.data = rewards_scaled;
+  mpl_cost_pub->publish(cost_arr);
+
   display_scalar_field(rewards_scaled,vis_scaled_pub);
+
+  // Apply random noise to chosen waypoint
+  waypt_x += waypt_rand(rand_gen);
+  waypt_y += waypt_rand(rand_gen);
+
   return std::pair<double,double>(waypt_x,waypt_y);
 }
 
