@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <queue>
 #include <geometry_msgs/msg/pose.hpp>
 
 #include "rclcpp/rclcpp.hpp"
@@ -19,7 +20,7 @@ class Sampler : public rclcpp::Node {
     protected:
         void timer_callback();
         void query_waypoint();
-        void upload_data(std::vector<SampleReturn> samples);
+        void upload_data(SampleReturn);
 
         SampleReturn take_sample();
 
@@ -29,6 +30,6 @@ class Sampler : public rclcpp::Node {
 
         geometry_msgs::msg::Pose pose;
         std::vector<SampleReturn> sample_vec;
-        rclcpp::Publisher<SampleReturnArray>::SharedPtr sample_pub;
+        rclcpp::Publisher<SampleReturn>::SharedPtr sample_pub;
 
 };

@@ -5,19 +5,19 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='adaptive_sample',
-            executable='orchestrator',
-            name='orchestrator'
+            executable='gp_test',
+            name='model'
+        ),
+        Node(
+            package='adaptive_sample',
+            executable='visualize.py',
+            name='visualizer'
         ),
         Node(
             package='adaptive_sample',
             executable='simple_robot',
-            parameters=[{'id':1}],
-            name='robot1'
-        ),
-        Node(
-            package='adaptive_sample',
-            executable='simple_robot',
-            parameters=[{'id':2}],
-            name='robot2'
+            parameters=[{'id':999}],
+            name='robot999',
+            namespace='robot999'
         ),
     ])

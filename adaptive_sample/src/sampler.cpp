@@ -4,13 +4,11 @@ using namespace std::chrono_literals;
 using sampling_interfaces::msg::SampleReturn;
 using sampling_interfaces::msg::SampleReturnArray;
 
-Sampler::Sampler() : Node("orchestrator"), 
+Sampler::Sampler() : Node("sampler"), 
 count_(0) {
   id = this->declare_parameter<int>("id",999);
-  std::string sample_topic = "/robot" + std::to_string(id) + "/data";
-  std::string log_topic = "/robot" + std::to_string(id) + "/log";
-  sample_pub = this->create_publisher<SampleReturnArray>(sample_topic, 10);
-  publisher_ = this->create_publisher<std_msgs::msg::String>(log_topic, 10);
+  sample_pub = this->create_publisher<SampleReturn>("data", 10);
+  publisher_ = this->create_publisher<std_msgs::msg::String>("log", 10);
 }
 
 void Sampler::timer_callback() {
@@ -20,6 +18,7 @@ void Sampler::timer_callback() {
   publisher_->publish(message);
 }
 
-void Sampler::upload_data(std::vector<SampleReturn> samples) {
-    int x = 0;
+void Sampler::upload_data(SampleReturn sample) {
+    RCLCPP_INFO(this->get_logger(), "Publishing Sample");
+    sample_pub->publish(sample);
 }

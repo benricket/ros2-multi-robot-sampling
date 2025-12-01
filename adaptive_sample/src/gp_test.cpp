@@ -34,6 +34,8 @@ class GPTest : public rclcpp::Node
         500ms, std::bind(&GPTest::timer_callback, this));
       data_sub = this->create_subscription<SampleReturn>("/sample_in",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
       loc_sub = this->create_subscription<SampleReturn>("/loc_in",10,std::bind(&GPTest::upload_position_callback,this,std::placeholders::_1));
+
+      // Visualization of model
       vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
       vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
       my_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/my_loc",10);
@@ -41,6 +43,19 @@ class GPTest : public rclcpp::Node
 
       // waypoint pub (just one for now)
       waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
+
+      // Visualization of robot position and target
+      my_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/my_loc",10);
+      target_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/target_loc",10);
+
+      // waypoint pub (just one for now)
+      waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
+
+      // TODO change to support multiple robots
+      single_data_sub = this->create_subscription<SampleReturn>("/robot999/data",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
+      single_waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/robot999/waypt_in",10);
+
+      mpl_vis_pub = this->create_publisher<std_msgs::msg::Float32MultiArray>("/model_vis_mpl",10);
 
       // Define map bounds
       map_x_max = 10.0;
@@ -51,6 +66,21 @@ class GPTest : public rclcpp::Node
       res_x = 100;
       res_y = 100;
       num_cells = res_x * res_y;
+
+      add_count = 0;
+
+      // TODO setup a reasonable model prior rather than doing this
+      double x_init_guesses[] = {0.1,0.2,3.0,9.7,9.5};
+      double y_init_guesses[] = {0.2,9.8,2.5,9.9,0.1};
+      for (int i = 0; i < 5; ++i) {
+        double x = x_init_guesses[i];
+        double y = y_init_guesses[i];
+        // test function, multivariate normal centered at 5,5 
+        double reading = exp(-0.25*(pow(x-5.0,2)+3*pow(y-5.0,2)));
+        Eigen::Vector3d obs(x,y,reading);
+        gauss_process.getTrainSet().addSample(obs);
+      }
+      this->visualize_model();
     }
 
   private:
@@ -86,6 +116,10 @@ class GPTest : public rclcpp::Node
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr my_loc_pub;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_loc_pub;
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr waypt_pub;
+    //std::vector<rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr> waypt_pubs;
+    rclcpp::Subscription<SampleReturn>::SharedPtr single_data_sub;
+    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr single_waypt_pub;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr mpl_vis_pub;
 
     double map_x_min;
     double map_x_max;
@@ -99,10 +133,15 @@ class GPTest : public rclcpp::Node
     int add_count;
 
     std::vector<Eigen::Vector3d> samples;
-
+    
 };
 
 std::pair<double,double> GPTest::predict(Eigen::Vector2d loc) {
+  //RCLCPP_INFO(this->get_logger(),("Samples input size: "+std::to_string(gauss_process.getTrainSet().GetSamplesInput().size())).c_str());
+  if (gauss_process.getTrainSet().GetSamplesInput().size() == 0) {
+    RCLCPP_INFO(this->get_logger(),"Attempted prediction with no samples");
+    return {0.0, 0.0};
+  }
   auto predicted = gauss_process.predict(loc,gauss::gp::SINGLE_PREDICTIVE_DISTRIBUTION_TAG);
   double mean = predicted.getMean()(0);
   double var = predicted.getCovariance()(0,0);
@@ -114,15 +153,55 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   double y = msg.pose_stamped.pose.position.y;
   double reading = msg.reading;
 
+  // Publish input location
+  visualization_msgs::msg::Marker my_loc;
+  my_loc.pose.position.x = x;
+  my_loc.pose.position.y = y;
+  my_loc.pose.position.z = 0.5;
+  my_loc.scale.x = 1.0;
+  my_loc.scale.y = 1.0;
+  my_loc.scale.z = 1.0;
+  my_loc.color.r = 1.0;
+  my_loc.color.g = 1.0;
+  my_loc.color.b = 1.0;
+  my_loc.color.a = 1.0;
+  my_loc_pub->publish(my_loc);
+
+  // Calculate target point and visualize weights
+  std::pair<double,double> waypoint = weight_model_distance(x,y,0.1,0.0);
+  double waypt_x = waypoint.first;
+  double waypt_y = waypoint.second;
+
+  // Upload waypoint
+  geometry_msgs::msg::Pose pt;
+  pt.position.x = waypt_x;
+  pt.position.y = waypt_y;
+  this->single_waypt_pub->publish(pt);
+  RCLCPP_INFO(this->get_logger(), "Published new waypoint");
+
   Eigen::Vector3d obs(x,y,reading);
   gauss_process.getTrainSet().addSample(obs);
   visualize_model();
 
   ++add_count;
-  if (add_count > 15) {
+  if (add_count > 50) {
     add_count = 0;
     retrain_hyperparams();
   }
+
+  // Publish target location
+  visualization_msgs::msg::Marker target_loc;
+  target_loc.pose.position.x = waypt_x;
+  target_loc.pose.position.y = waypt_y;
+  target_loc.pose.position.z = 0.5;
+  target_loc.scale.x = 1.0;
+  target_loc.scale.y = 1.0;
+  target_loc.scale.z = 1.0;
+  target_loc.color.r = 0.0;
+  target_loc.color.g = 1.0;
+  target_loc.color.b = 0.0;
+  target_loc.color.a = 1.0;
+  target_loc_pub->publish(target_loc);
 }
 
 void GPTest::upload_position_callback(const SampleReturn& msg) {
@@ -273,6 +352,15 @@ void GPTest::visualize_model() {
       var_arr[res_x*i + j] = var;
     }
   }
+
+  // Make big arr to pass to visualize
+  Float32MultiArray mean_float_arr;
+  mean_float_arr.layout.dim.resize(2);
+  mean_float_arr.layout.dim[0].stride = res_x * res_y;
+  mean_float_arr.layout.dim[1].stride = res_y;
+  mean_float_arr.set__data(mean_float_arr.data);
+
+
   double mean_max = *std::max_element(mean_arr.begin(),mean_arr.end());
   double mean_min = *std::min_element(mean_arr.begin(),mean_arr.end());
   for (int i = 0; i < n; ++i) {
