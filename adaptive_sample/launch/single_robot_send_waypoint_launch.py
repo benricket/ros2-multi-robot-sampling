@@ -13,14 +13,6 @@ def generate_launch_description():
         ),
         Node(
             package='adaptive_sample',
-            executable='gp_test_pub',
-            name='waypoint_publisher',
-            remappings=[
-                ('/waypt_in','/robot999/waypt_in')
-            ]
-        ),
-        Node(
-            package='adaptive_sample',
             executable='simple_robot',
             name='robot999',
             namespace='robot999',
