@@ -28,32 +28,51 @@ class Visualizer(Node):
             for col in range(100):
                 self.ground_truth[row,col] = math.exp(-0.25*(pow(col/10 - 5.0,2)+3.0*pow(row/10 - 5.0,2)))
 
-        self.robot_pose = [0.0,0.0]
-        self.robot_target = [0.0,0.0]
+        self.declare_parameter("num_robots",2)
+        self.num_robots = self.get_parameter("num_robots").get_parameter_value().integer_value
 
+        self.robot_poses = [[0.0,0.0] for i in range(self.num_robots)]
+        self.robot_targets = [[0.0,0.0] for i in range(self.num_robots)]
+
+        # Determine how many colors we need to represent our robots
+        cmap = plt.get_cmap("jet")
+        colors = []
+        for i in range(self.num_robots):
+            colors.append(cmap(i / self.num_robots))
+
+        self.num_plots_with_robots = 4
+        robot_markersize = 10
+        target_markersize = 5
         self.timer = self.create_timer(0.01,self.timer_callback)
         self.fig, self.ax = plt.subplots(1,5)
 
+        self.robots_drawn = []
+        self.targets_drawn = []
+
+        for i in range(self.num_plots_with_robots):
+            robot_on_ax = []
+            target_on_ax = []
+            for robot_id in range(self.num_robots):
+                color = colors[robot_id]
+                r_drawn, = self.ax[i].plot(self.robot_poses[robot_id][0],self.robot_poses[robot_id][1],'o',color=color,markersize=robot_markersize)
+                t_drawn, = self.ax[i].plot(self.robot_targets[robot_id][0],self.robot_targets[robot_id][1],'o',color=color,markersize=target_markersize)
+                robot_on_ax.append(r_drawn)
+                target_on_ax.append(t_drawn)
+            self.robots_drawn.append(robot_on_ax)
+            self.targets_drawn.append(target_on_ax)
+
         self.ax[0].set_title("Predicted Values")
         self.mean_drawn = self.ax[0].imshow(self.mean_data,extent=[0,10.0,0,10.0])
-        self.robot_drawn, = self.ax[0].plot(self.robot_pose[0],self.robot_pose[1],'o',color='white',markersize=10)
-        self.target_drawn, = self.ax[0].plot(self.robot_target[0],self.robot_target[1],'o',color='red',markersize=10)
-
+        
         self.ax[1].set_title("Prediction Variance")
         self.var_drawn = self.ax[1].imshow(self.var_data,extent=[0,10.0,0,10.0])
-        self.robot_drawn_2, = self.ax[1].plot(self.robot_pose[0],self.robot_pose[1],'o',color='white',markersize=10)
-        self.target_drawn_2, = self.ax[1].plot(self.robot_target[0],self.robot_target[1],'o',color='red',markersize=10)
-
+        
         self.ax[2].set_title("Reward (unweighted by distance)")
         self.cost_uw_drawn = self.ax[2].imshow(self.cost_unweighted_data,extent=[0,10.0,0,10.0])
-        self.robot_drawn_3, = self.ax[2].plot(self.robot_pose[0],self.robot_pose[1],'o',color='white',markersize=10)
-        self.target_drawn_3, = self.ax[2].plot(self.robot_target[0],self.robot_target[1],'o',color='red',markersize=10)
-
+        
         self.ax[3].set_title("Reward (weighted by distance)")
         self.cost_drawn = self.ax[3].imshow(self.cost_data,extent=[0,10.0,0,10.0])
-        self.robot_drawn_4, = self.ax[3].plot(self.robot_pose[0],self.robot_pose[1],'o',color='white',markersize=10)
-        self.target_drawn_4, = self.ax[3].plot(self.robot_target[0],self.robot_target[1],'o',color='red',markersize=10)
-
+        
         self.ax[4].set_title("Ground Truth")
         self.gnd_truth_drawn = self.ax[4].imshow(self.ground_truth,extent=[0,10.0,0,10.0])
 
@@ -65,8 +84,12 @@ class Visualizer(Node):
         self.var_sub = self.create_subscription(Float64MultiArray,"/model_var",self.var_callback,10)
         self.cost_uw_sub = self.create_subscription(Float64MultiArray,"/model_cost_unweighted",self.cost_uw_callback,10)
         self.cost_sub = self.create_subscription(Float64MultiArray,"/model_cost",self.cost_callback,10)
-        self.robot_pose_sub = self.create_subscription(PoseStamped,"/robot999/pos",self.robot_pose_callback,10)
-        self.robot_target_sub = self.create_subscription(PoseStamped,"/robot999/target",self.robot_target_callback,10)
+        self.robot_pose_subs = []
+        self.robot_target_subs = []
+
+        for i in range(self.num_robots):
+            self.robot_pose_subs.append(self.create_subscription(PoseStamped,f"/robot{i}/pos",lambda msg,robot_id=i: self.robot_pose_callback(msg,robot_id),10))
+            self.robot_target_subs.append(self.create_subscription(PoseStamped,f"/robot{i}/target",lambda msg,robot_id=i: self.robot_target_callback(msg,robot_id),10))
 
     def old_model_vis_callback(self,msg: MarkerArray):
         res_x = 100
@@ -132,18 +155,18 @@ class Visualizer(Node):
         print(f"Max reward: {np.max(data)}")
         self.cost_data = data
     
-    def robot_pose_callback(self,msg: PoseStamped):
+    def robot_pose_callback(self,msg: PoseStamped, id: int):
         x = msg.pose.position.x
         y = msg.pose.position.y
-        self.robot_pose = [x,y]
+        self.robot_poses[id] = [x,y]
 
-    def robot_target_callback(self,msg: PoseStamped):
+    def robot_target_callback(self,msg: PoseStamped, id: int):
         x = msg.pose.position.x
         y = msg.pose.position.y
-        self.robot_target = [x,y]
+        self.robot_targets[id] = [x,y]
         
     def timer_callback(self):
-        print(f"timer callback: pose is {self.robot_pose}")
+        print(f"timer callback: poses are {self.robot_poses}")
 
         vmin = np.min(self.mean_data)
         vmax = np.max(self.mean_data)
@@ -173,14 +196,11 @@ class Visualizer(Node):
         self.cost_drawn.set_clim(vmin=vmin, vmax=vmax)
         self.cost_drawn.set_data(self.cost_data)
 
-        self.robot_drawn.set_data(self.robot_pose[0],self.robot_pose[1])
-        self.target_drawn.set_data(self.robot_target[0],self.robot_target[1])
-        self.robot_drawn_2.set_data(self.robot_pose[0],self.robot_pose[1])
-        self.target_drawn_2.set_data(self.robot_target[0],self.robot_target[1])
-        self.robot_drawn_3.set_data(self.robot_pose[0],self.robot_pose[1])
-        self.target_drawn_3.set_data(self.robot_target[0],self.robot_target[1])
-        self.robot_drawn_4.set_data(self.robot_pose[0],self.robot_pose[1])
-        self.target_drawn_4.set_data(self.robot_target[0],self.robot_target[1])
+        for ax_id in range(self.num_plots_with_robots):
+            for robot_id in range(self.num_robots):
+                self.robots_drawn[ax_id][robot_id].set_data(self.robot_poses[robot_id][0],self.robot_poses[robot_id][1])
+                self.targets_drawn[ax_id][robot_id].set_data(self.robot_targets[robot_id][0],self.robot_targets[robot_id][1])
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         plt.pause(0.001)

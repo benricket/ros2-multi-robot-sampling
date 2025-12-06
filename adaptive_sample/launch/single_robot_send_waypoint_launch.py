@@ -7,22 +7,22 @@ def generate_launch_description():
             package='adaptive_sample',
             executable='orchestrator',
             name='orchestrator',
-            remappings=[
-                ('/waypt_in','/robot999/waypt_in')
+            parameters=[
+                {"num_robots":1}
             ]
         ),
         Node(
             package='adaptive_sample',
             executable='simple_robot',
-            name='robot999',
-            namespace='robot999',
-            remappings=[
-                ('/waypt_in','/robot999/waypt_in')
-            ]
+            name='robot0',
+            namespace='robot0',
         ),
         Node(
             package='adaptive_sample',
             executable='visualize.py',
             name='vis',
+            parameters=[
+                {"num_robots":1}
+            ]
         )
     ])

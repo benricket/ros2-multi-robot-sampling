@@ -36,28 +36,21 @@ class GPTest : public rclcpp::Node
       publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
       timer_ = this->create_wall_timer(
         500ms, std::bind(&GPTest::timer_callback, this));
-      data_sub = this->create_subscription<SampleReturn>("/sample_in",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
-      loc_sub = this->create_subscription<SampleReturn>("/loc_in",10,std::bind(&GPTest::upload_position_callback,this,std::placeholders::_1));
+
+      this->declare_parameter("num_robots",2);
+      int num_robots = this->get_parameter("num_robots").as_int();
+
+      data_subs.resize(num_robots);
+      waypt_pubs.resize(num_robots);
+
+      for (int i = 0; i < num_robots; ++i) {
+        data_subs[i] = this->create_subscription<SampleReturn>(("/robot" + std::to_string(i) + "/data").c_str(),10,[this, i](SampleReturn::ConstSharedPtr msg){this->upload_data_callback(msg,i);});
+        waypt_pubs[i] = this->create_publisher<geometry_msgs::msg::Pose>(("/robot" + std::to_string(i) + "/waypt_in").c_str(),10);
+      }
 
       // Visualization of model
       vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
       vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
-      my_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/my_loc",10);
-      target_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/target_loc",10);
-
-      // waypoint pub (just one for now)
-      waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
-
-      // Visualization of robot position and target
-      my_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/my_loc",10);
-      target_loc_pub = this->create_publisher<visualization_msgs::msg::Marker>("/target_loc",10);
-
-      // waypoint pub (just one for now)
-      waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/waypt_in",10);
-
-      // TODO change to support multiple robots
-      single_data_sub = this->create_subscription<SampleReturn>("/robot999/data",10,std::bind(&GPTest::upload_data_callback,this,std::placeholders::_1));
-      single_waypt_pub = this->create_publisher<geometry_msgs::msg::Pose>("/robot999/waypt_in",10);
 
       mpl_mean_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_mean",10);
       mpl_var_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_var",10);
@@ -106,7 +99,7 @@ class GPTest : public rclcpp::Node
 
     std::pair<double,double> predict(Eigen::Vector2d loc);
     void query_waypoint_callback(const std_msgs::msg::String& msg);
-    void upload_data_callback(const SampleReturn& msg);
+    void upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, int id);
     void upload_position_callback(const SampleReturn& msg);
     std::vector<double> compute_reward(double var_weight);
     std::pair<double,double> weight_model_distance(double x, double y, double dist_weight, double var_weight);
@@ -125,16 +118,13 @@ class GPTest : public rclcpp::Node
     // Parameters for sampling setup
     gauss::gp::KernelFunctionPtr kernel_func;
     gauss::gp::GaussianProcess gauss_process;
-    rclcpp::Subscription<SampleReturn>::SharedPtr data_sub;
-    rclcpp::Subscription<SampleReturn>::SharedPtr loc_sub;
+
+    std::vector<rclcpp::Subscription<SampleReturn>::SharedPtr> data_subs;
+    std::vector<rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr> waypt_pubs;
+
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_pub;
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_scaled_pub;
-    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr my_loc_pub;
-    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr target_loc_pub;
-    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr waypt_pub;
-    //std::vector<rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr> waypt_pubs;
-    rclcpp::Subscription<SampleReturn>::SharedPtr single_data_sub;
-    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr single_waypt_pub;
+
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_mean_pub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_var_pub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr mpl_cost_unweighted_pub;
@@ -167,12 +157,13 @@ std::pair<double,double> GPTest::predict(Eigen::Vector2d loc) {
   return std::pair<double,double>(mean,var);
 }
 
-void GPTest::upload_data_callback(const SampleReturn& msg) {
+void GPTest::upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, int id) {
+  SampleReturn msg = *msg_ptr; // Unwrap pointer
   double x = msg.pose_stamped.pose.position.x;
   double y = msg.pose_stamped.pose.position.y;
   double reading = msg.reading;
 
-  // Publish input location
+  // Publish input location TODO move to simple robot
   visualization_msgs::msg::Marker my_loc;
   my_loc.pose.position.x = x;
   my_loc.pose.position.y = y;
@@ -184,7 +175,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   my_loc.color.g = 1.0;
   my_loc.color.b = 1.0;
   my_loc.color.a = 1.0;
-  my_loc_pub->publish(my_loc);
+  //my_loc_pub->publish(my_loc);
 
   // Calculate target point and visualize weights
   double dist_weight = this->get_parameter("distance_weight").as_double();
@@ -201,7 +192,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   geometry_msgs::msg::Pose pt;
   pt.position.x = waypt_x;
   pt.position.y = waypt_y;
-  this->single_waypt_pub->publish(pt);
+  this->waypt_pubs[id]->publish(pt);
   RCLCPP_INFO(this->get_logger(), ("Published new waypoint: "+std::to_string(pt.position.x)+std::to_string(pt.position.y)).c_str());
 
   Eigen::Vector3d obs(x,y,reading);
@@ -214,7 +205,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
     retrain_hyperparams();
   }
 
-  // Publish target location
+  // Publish target location TODO move to simple robot
   visualization_msgs::msg::Marker target_loc;
   target_loc.pose.position.x = waypt_x;
   target_loc.pose.position.y = waypt_y;
@@ -226,51 +217,7 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   target_loc.color.g = 1.0;
   target_loc.color.b = 0.0;
   target_loc.color.a = 1.0;
-  target_loc_pub->publish(target_loc);
-}
-
-void GPTest::upload_position_callback(const SampleReturn& msg) {
-  double x = msg.pose_stamped.pose.position.x;
-  double y = msg.pose_stamped.pose.position.y;
-
-  // Publish input location
-  visualization_msgs::msg::Marker my_loc;
-  my_loc.pose.position.x = x;
-  my_loc.pose.position.y = y;
-  my_loc.pose.position.z = 0.5;
-  my_loc.scale.x = 1.0;
-  my_loc.scale.y = 1.0;
-  my_loc.scale.z = 1.0;
-  my_loc.color.r = 1.0;
-  my_loc.color.g = 1.0;
-  my_loc.color.b = 1.0;
-  my_loc.color.a = 1.0;
-  my_loc_pub->publish(my_loc);
-
-  // Calculate target point and visualize weights
-  std::pair<double,double> waypoint = weight_model_distance(x,y,0.1,0.0);
-  double waypt_x = waypoint.first;
-  double waypt_y = waypoint.second;
-
-  // Upload waypoint
-  geometry_msgs::msg::Pose pt;
-  pt.position.x = waypt_x;
-  pt.position.y = waypt_y;
-  this->waypt_pub->publish(pt);
-
-  // Publish target location
-  visualization_msgs::msg::Marker target_loc;
-  target_loc.pose.position.x = waypt_x;
-  target_loc.pose.position.y = waypt_y;
-  target_loc.pose.position.z = 0.5;
-  target_loc.scale.x = 1.0;
-  target_loc.scale.y = 1.0;
-  target_loc.scale.z = 1.0;
-  target_loc.color.r = 0.0;
-  target_loc.color.g = 1.0;
-  target_loc.color.b = 0.0;
-  target_loc.color.a = 1.0;
-  target_loc_pub->publish(target_loc);
+  //target_loc_pub->publish(target_loc);
 }
 
 void GPTest::retrain_hyperparams() {

@@ -4,24 +4,27 @@ from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 
 def launch_setup(context):
+    num_robots_str = LaunchConfiguration("num_robots").perform(context)
+    num_robots = int(num_robots_str)
+
     nodes_to_launch = [
         Node(
             package='adaptive_sample',
             executable='orchestrator',
             name='orchestrator',
-            remappings=[
-                ('/waypt_in','/robot999/waypt_in')
+            parameters=[
+                {"num_robots":num_robots}
             ]
         ),
         Node(
             package='adaptive_sample',
             executable='visualize.py',
             name='vis',
+            parameters=[
+                {"num_robots":num_robots}
+            ]
         )
     ]
-
-    num_robots_str = LaunchConfiguration("num_robots").perform(context)
-    num_robots = int(num_robots_str)
 
     for i in range(num_robots):
         namespace = f'robot{i}'
