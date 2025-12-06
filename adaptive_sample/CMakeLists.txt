@@ -95,7 +95,8 @@ install(TARGETS
 )
 
 install(PROGRAMS
-  scripts/visualize.py DESTINATION lib/${PROJECT_NAME}
+  scripts/visualize.py scripts/sim_controller.py
+   DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

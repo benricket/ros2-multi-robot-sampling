@@ -1,4 +1,4 @@
-#include "sampler.hpp"
+#include "simple_robot.hpp"
 
 using namespace std::chrono_literals;
 using sampling_interfaces::msg::SampleReturn;
@@ -9,6 +9,7 @@ class SimpleRobot : public Sampler {
     public:
         SimpleRobot() : Sampler() {
             speed = 0.5;
+            running = 0;
             //std::string pos_topic = "/robot" + std::to_string(this->id) + "/pos"; removed in favor of namespace
             pos_pub = this->create_publisher<PoseStamped>("pos", 10);
             target_pub = this->create_publisher<PoseStamped>("target",10);
@@ -16,6 +17,7 @@ class SimpleRobot : public Sampler {
             timer_ = this->create_wall_timer(
                 100ms, std::bind(&SimpleRobot::timer_callback, this));
             last_time_moved = this->get_clock().get()->now().seconds();
+            signal_sub = this->create_subscription<std_msgs::msg::Int32>("/sim_control",10,std::bind(&SimpleRobot::signal_callback,this,std::placeholders::_1));
         }
     private:
         geometry_msgs::msg::Pose move_towards_waypoint(geometry_msgs::msg::Pose waypoint);
@@ -25,13 +27,28 @@ class SimpleRobot : public Sampler {
         rclcpp::TimerBase::SharedPtr timer_;
         std::queue<geometry_msgs::msg::Pose> waypts;
 
+        int running;
+
         rclcpp::Publisher<PoseStamped>::SharedPtr pos_pub;
         rclcpp::Publisher<PoseStamped>::SharedPtr target_pub;
         rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr waypt_sub;
+        rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr signal_sub;
         void timer_callback();
         void waypt_callback(geometry_msgs::msg::Pose msg);
+        void signal_callback(std_msgs::msg::Int32 msg);
         void sample();
 };
+
+void SimpleRobot::signal_callback(std_msgs::msg::Int32 msg) {
+  RCLCPP_INFO(this->get_logger(),("Received signal: " + std::to_string(msg.data)).c_str());
+  running = msg.data;
+  if (running && waypts.size() < 1) {
+    // We have no waypoints and are starting the sim; get a waypoint to go to
+    // For now, we do this by sampling where we're at
+    // Could later be implemented as a service
+    this->sample();
+  }
+} 
 
 void SimpleRobot::timer_callback() {
   auto message = std_msgs::msg::String();
@@ -51,6 +68,11 @@ void SimpleRobot::timer_callback() {
   std::cout << "X " << this->pose.position.x << ", Y " << this->pose.position.y << std::endl;
   std::cout << "dt: " << dt << ", " << time_now << std::endl;
   this->last_time_moved = time_now;
+
+  // Only move if the simulation is running
+  if (this->running == 0) {
+    return;
+  }
 
   int num_waypts = this->waypts.size();
   if (num_waypts < 1) {
