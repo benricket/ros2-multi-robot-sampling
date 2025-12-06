@@ -29,7 +29,7 @@ class GPTest : public rclcpp::Node
     GPTest() : Node("model"), 
     count_(0),
     rand_gen(std::chrono::system_clock::now().time_since_epoch().count()),
-    waypt_rand(0.0,0.2),
+    waypt_rand(0.0,0.0),
     kernel_func(std::make_unique<gauss::gp::SquaredExponential>(1.0,1.0)),
     gauss_process(std::move(kernel_func),2,1) {
 
@@ -75,6 +75,12 @@ class GPTest : public rclcpp::Node
       num_cells = res_x * res_y;
 
       add_count = 0;
+
+      // Declare ROS params
+      this->declare_parameter("mean_weight",1.0);
+      this->declare_parameter("var_weight",0.5);
+      this->declare_parameter("distance_weight",0.01);
+      this->declare_parameter("waypoint_random_std",0.0);
 
       // TODO setup a reasonable model prior rather than doing this
       double x_init_guesses[] = {0.1,0.2,3.0,9.7,9.5};
@@ -181,7 +187,13 @@ void GPTest::upload_data_callback(const SampleReturn& msg) {
   my_loc_pub->publish(my_loc);
 
   // Calculate target point and visualize weights
-  std::pair<double,double> waypoint = weight_model_distance(x,y,0.01,1.0);
+  double dist_weight = this->get_parameter("distance_weight").as_double();
+  double var_weight = this->get_parameter("var_weight").as_double();
+  double mean_weight = this->get_parameter("mean_weight").as_double();
+  // Mean weight is always 1 in reward function
+  dist_weight /= mean_weight;
+  var_weight /= mean_weight;
+  std::pair<double,double> waypoint = weight_model_distance(x,y,dist_weight,var_weight);
   double waypt_x = waypoint.first;
   double waypt_y = waypoint.second;
 
@@ -285,7 +297,7 @@ std::vector<double> GPTest::compute_reward(double var_weight = 0.1) {
   return reward_arr;
 }
 
-std::pair<double,double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.5, double var_weight = 0.0) {
+std::pair<double,double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.01, double var_weight = 0.5) {
   std::vector<double> rewards = compute_reward(var_weight);
   std::vector<double> rewards_scaled(num_cells);
   double reward_scale_max = 0;
@@ -329,8 +341,10 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
   display_scalar_field(rewards_scaled,vis_scaled_pub);
 
   // Apply random noise to chosen waypoint
-  waypt_x += waypt_rand(rand_gen);
-  waypt_y += waypt_rand(rand_gen);
+  double waypt_rand_std = this->get_parameter("waypoint_random_std").as_double();
+  std::normal_distribution<double> waypoint_random_dist(0.0,waypt_rand_std);
+  waypt_x += waypoint_random_dist(rand_gen);
+  waypt_y += waypoint_random_dist(rand_gen);
 
   return std::pair<double,double>(waypt_x,waypt_y);
 }

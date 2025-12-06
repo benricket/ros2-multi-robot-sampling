@@ -8,7 +8,7 @@ using geometry_msgs::msg::PoseStamped;
 class SimpleRobot : public Sampler {
     public:
         SimpleRobot() : Sampler() {
-            speed = 0.5;
+            this->declare_parameter("speed",0.5);
             running = 0;
             //std::string pos_topic = "/robot" + std::to_string(this->id) + "/pos"; removed in favor of namespace
             pos_pub = this->create_publisher<PoseStamped>("pos", 10);
@@ -22,7 +22,6 @@ class SimpleRobot : public Sampler {
     private:
         geometry_msgs::msg::Pose move_towards_waypoint(geometry_msgs::msg::Pose waypoint);
         geometry_msgs::msg::Pose pose;
-        double speed;
         double last_time_moved;
         rclcpp::TimerBase::SharedPtr timer_;
         std::queue<geometry_msgs::msg::Pose> waypts;
@@ -63,8 +62,9 @@ void SimpleRobot::timer_callback() {
   ps.header.stamp.sec = time_now;
   this->pos_pub->publish(ps);
 
+  double speed = this->get_parameter("speed").as_double();
   double dt = time_now - this->last_time_moved;
-  double travel = dt * this->speed;
+  double travel = dt * speed;
   std::cout << "X " << this->pose.position.x << ", Y " << this->pose.position.y << std::endl;
   std::cout << "dt: " << dt << ", " << time_now << std::endl;
   this->last_time_moved = time_now;
