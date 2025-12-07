@@ -16,6 +16,7 @@
 #include "sampling_interfaces/msg/sample_return.hpp"
 #include "sampling_interfaces/msg/sample_return_array.hpp"
 #include "geometry_msgs/msg/pose.hpp"
+#include "ground_truths.cpp"
 
 using namespace std::chrono_literals;
 using sampling_interfaces::msg::SampleReturn;
@@ -31,31 +32,8 @@ class GPTest : public rclcpp::Node
     rand_gen(std::chrono::system_clock::now().time_since_epoch().count()),
     waypt_rand(0.0,0.0),
     kernel_func(std::make_unique<gauss::gp::SquaredExponential>(1.0,1.0)),
-    gauss_process(std::move(kernel_func),2,1) {
-
-      publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
-      timer_ = this->create_wall_timer(
-        500ms, std::bind(&GPTest::timer_callback, this));
-
-      this->declare_parameter("num_robots",2);
-      int num_robots = this->get_parameter("num_robots").as_int();
-
-      data_subs.resize(num_robots);
-      waypt_pubs.resize(num_robots);
-
-      for (int i = 0; i < num_robots; ++i) {
-        data_subs[i] = this->create_subscription<SampleReturn>(("/robot" + std::to_string(i) + "/data").c_str(),10,[this, i](SampleReturn::ConstSharedPtr msg){this->upload_data_callback(msg,i);});
-        waypt_pubs[i] = this->create_publisher<geometry_msgs::msg::Pose>(("/robot" + std::to_string(i) + "/waypt_in").c_str(),10);
-      }
-
-      // Visualization of model
-      vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
-      vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
-
-      mpl_mean_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_mean",10);
-      mpl_var_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_var",10);
-      mpl_cost_unweighted_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost_unweighted",10);
-      mpl_cost_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost",10);
+    gauss_process(std::move(kernel_func),2,1),
+    ground_truth(5) {
 
       // Define map bounds
       map_x_max = 10.0;
@@ -69,10 +47,60 @@ class GPTest : public rclcpp::Node
 
       add_count = 0;
 
+      publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
+      timer_ = this->create_wall_timer(
+        500ms, std::bind(&GPTest::timer_callback, this));
+
+      slow_timer_ = this->create_wall_timer(
+        1s, std::bind(&GPTest::update_ground_truth, this));
+      ground_truth_pub = this->create_publisher<Float64MultiArray>("/ground_truth",10);
+
+      // Sample ground truth so it can be published to visualizer
+      std::vector<double> gt(num_cells);
+      for (int i = 0; i < res_x; ++i) {
+        double x = map_x_min + (double) (i * (map_x_max - map_x_min)) / (double)res_x; 
+        for (int j = 0; j < res_y; ++j) {
+          double y = map_y_min + (double) (j * (map_y_max - map_y_min)) / (double)res_y; 
+          Eigen::Vector2d loc(x,y);
+          double val = this->ground_truth.draw_sample(x,y);
+          gt[i*res_x + j] = val;
+        }
+      }
+
+      ground_truth_arr.layout.dim.resize(2);
+      ground_truth_arr.layout.dim[0].stride = res_x * res_y;
+      ground_truth_arr.layout.dim[1].stride = res_y;
+      ground_truth_arr.data = gt;
+      ground_truth_pub->publish(ground_truth_arr);
+
+      this->declare_parameter("num_robots",2);
+      int num_robots = this->get_parameter("num_robots").as_int();
+
+      data_subs.resize(num_robots);
+      waypt_pubs.resize(num_robots);
+
+      for (int i = 0; i < num_robots; ++i) {
+        data_subs[i] = this->create_subscription<SampleReturn>(("/robot" + std::to_string(i) + "/data").c_str(),10,[this, i](SampleReturn::ConstSharedPtr msg){this->upload_data_callback(msg,i);});
+        waypt_pubs[i] = this->create_publisher<geometry_msgs::msg::Pose>(("/robot" + std::to_string(i) + "/waypt_in").c_str(),10);
+      }
+
+      // Setup vector of latest waypoints per robot
+      latest_waypts.resize(num_robots);
+
+      // Visualization of model
+      vis_pub = this->create_publisher<MarkerArray>("/model_vis",10);
+      vis_scaled_pub = this->create_publisher<MarkerArray>("/model_vis_scaled",10);
+
+      mpl_mean_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_mean",10);
+      mpl_var_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_var",10);
+      mpl_cost_unweighted_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost_unweighted",10);
+      mpl_cost_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>("/model_cost",10);
+
       // Declare ROS params
       this->declare_parameter("mean_weight",1.0);
       this->declare_parameter("var_weight",0.5);
       this->declare_parameter("distance_weight",0.01);
+      this->declare_parameter("dispersion_weight",0.01);
       this->declare_parameter("waypoint_random_std",0.0);
 
       // TODO setup a reasonable model prior rather than doing this
@@ -102,10 +130,11 @@ class GPTest : public rclcpp::Node
     void upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, int id);
     void upload_position_callback(const SampleReturn& msg);
     std::vector<double> compute_reward(double var_weight);
-    std::pair<double,double> weight_model_distance(double x, double y, double dist_weight, double var_weight);
+    std::pair<double,double> weight_model_distance(double x, double y, double dist_weight, double var_weight, double disp_weight);
     void display_scalar_field(std::vector<double> values,rclcpp::Publisher<MarkerArray>::SharedPtr& pub);
     void visualize_model();
     void retrain_hyperparams();
+    void update_ground_truth();
     std::tuple<float,float,float> colormap(double in, double max, double min);
 
     rclcpp::TimerBase::SharedPtr timer_;
@@ -121,6 +150,16 @@ class GPTest : public rclcpp::Node
 
     std::vector<rclcpp::Subscription<SampleReturn>::SharedPtr> data_subs;
     std::vector<rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr> waypt_pubs;
+
+    // Attributes for infrequent updates
+    // Used for updates that are only outward-facing (i.e. displaying ground truth)
+    rclcpp::TimerBase::SharedPtr slow_timer_;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr ground_truth_pub;
+    Float64MultiArray ground_truth_arr;
+    SumGaussians ground_truth;
+
+    // Record of last waypoints we've sent
+    std::vector<geometry_msgs::msg::Pose> latest_waypts;
 
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_pub;
     rclcpp::Publisher<MarkerArray>::SharedPtr vis_scaled_pub;
@@ -163,6 +202,18 @@ void GPTest::upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, i
   double y = msg.pose_stamped.pose.position.y;
   double reading = msg.reading;
 
+  /*
+  Right now, the orchestrator node holds the environment ground truth
+  Because of this, we need to override the reading that gets passed as a msg
+  In the future, we need to pass the same environment to each sampler robot,
+  which would require making a new msg type for our environment model or 
+  unwrapping / wrapping it to a double array
+
+  In the interest of simplicity we just perform the actual sampling here for
+  now
+  */
+  reading = ground_truth.draw_sample(x,y);
+
   // Publish input location TODO move to simple robot
   visualization_msgs::msg::Marker my_loc;
   my_loc.pose.position.x = x;
@@ -181,10 +232,12 @@ void GPTest::upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, i
   double dist_weight = this->get_parameter("distance_weight").as_double();
   double var_weight = this->get_parameter("var_weight").as_double();
   double mean_weight = this->get_parameter("mean_weight").as_double();
+  double disp_weight = this->get_parameter("dispersion_weight").as_double();
   // Mean weight is always 1 in reward function
   dist_weight /= mean_weight;
   var_weight /= mean_weight;
-  std::pair<double,double> waypoint = weight_model_distance(x,y,dist_weight,var_weight);
+  disp_weight /= mean_weight;
+  std::pair<double,double> waypoint = weight_model_distance(x,y,dist_weight,var_weight,disp_weight);
   double waypt_x = waypoint.first;
   double waypt_y = waypoint.second;
 
@@ -195,12 +248,15 @@ void GPTest::upload_data_callback(const SampleReturn::ConstSharedPtr& msg_ptr, i
   this->waypt_pubs[id]->publish(pt);
   RCLCPP_INFO(this->get_logger(), ("Published new waypoint: "+std::to_string(pt.position.x)+std::to_string(pt.position.y)).c_str());
 
+  // Record the waypoint we last published
+  latest_waypts[id] = pt;
+
   Eigen::Vector3d obs(x,y,reading);
   gauss_process.getTrainSet().addSample(obs);
   visualize_model();
 
   ++add_count;
-  if (add_count > 20) {
+  if (add_count > 10) {
     add_count = 0;
     retrain_hyperparams();
   }
@@ -244,7 +300,12 @@ std::vector<double> GPTest::compute_reward(double var_weight = 0.1) {
   return reward_arr;
 }
 
-std::pair<double,double> GPTest::weight_model_distance(double x, double y, double dist_weight = 0.01, double var_weight = 0.5) {
+std::pair<double,double> GPTest::weight_model_distance(
+  double x, double y, 
+  double dist_weight = 0.01, 
+  double var_weight = 0.5, 
+  double disp_weight = 0.01
+) {
   std::vector<double> rewards = compute_reward(var_weight);
   std::vector<double> rewards_scaled(num_cells);
   double reward_scale_max = 0;
@@ -259,9 +320,18 @@ std::pair<double,double> GPTest::weight_model_distance(double x, double y, doubl
     double reward = rewards[i];
     //std::cout << "cells x, y: " << x_cell << ", " << y_cell << std::endl;
 
+    // Account for penalty if near to recent waypoints
+    double dispersion_penalty_unweighted = 0.0;
+    for (geometry_msgs::msg::Pose& pt : latest_waypts) {
+      // Proportional to quarter root of distance for now
+      dispersion_penalty_unweighted += pow(pow(x_cell - pt.position.x, 2)+pow(y_cell - pt.position.y, 2),0.25);
+    }
+    reward += disp_weight * dispersion_penalty_unweighted;
+
     double dist = sqrt(pow(x - x_cell,2)+pow(y - y_cell,2));
     double reward_scaled = reward - dist_weight * dist;
     rewards_scaled[i] = reward_scaled;
+
     if (reward_scaled > reward_scale_max) {
       reward_scale_max = reward_scaled;
       waypt_x = x_cell;
@@ -392,6 +462,12 @@ void GPTest::visualize_model() {
   MarkerArray arr;
   arr.markers = markers;
   vis_pub->publish(arr);
+}
+
+void GPTest::update_ground_truth() {
+  // If we open our visualizer late, we need to publish this 
+  // more than just at the start of the simulation
+  ground_truth_pub->publish(ground_truth_arr);
 }
 
 std::tuple<float,float,float> GPTest::colormap(double in, double max, double min) {

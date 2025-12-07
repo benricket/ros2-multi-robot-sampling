@@ -24,9 +24,9 @@ class Visualizer(Node):
         # Later we'll add a separate class or separate functions to hold our gnd truth
         
         # would be faster with vectorized np functions but it's a one time cost regardless
-        for row in range(100):
-            for col in range(100):
-                self.ground_truth[row,col] = math.exp(-0.25*(pow(col/10 - 5.0,2)+3.0*pow(row/10 - 5.0,2)))
+        #for row in range(100):
+        #    for col in range(100):
+        #        self.ground_truth[row,col] = math.exp(-0.25*(pow(col/10 - 5.0,2)+3.0*pow(row/10 - 5.0,2)))
 
         self.declare_parameter("num_robots",2)
         self.num_robots = self.get_parameter("num_robots").get_parameter_value().integer_value
@@ -84,6 +84,7 @@ class Visualizer(Node):
         self.var_sub = self.create_subscription(Float64MultiArray,"/model_var",self.var_callback,10)
         self.cost_uw_sub = self.create_subscription(Float64MultiArray,"/model_cost_unweighted",self.cost_uw_callback,10)
         self.cost_sub = self.create_subscription(Float64MultiArray,"/model_cost",self.cost_callback,10)
+        self.ground_truth_sub = self.create_subscription(Float64MultiArray,"/ground_truth",self.ground_truth_callback,10)
         self.robot_pose_subs = []
         self.robot_target_subs = []
 
@@ -154,6 +155,19 @@ class Visualizer(Node):
         print(f"Min reward: {np.min(data)}")
         print(f"Max reward: {np.max(data)}")
         self.cost_data = data
+
+    def ground_truth_callback(self,msg: Float64MultiArray):
+        res_x = 100
+        res_y = 100
+        data = np.zeros(shape=(res_x,res_y))
+        for i,val in enumerate(msg.data):
+            x = i // res_x
+            y = i % res_x
+            data[res_y - 1 - y, x] = val
+        print(f"Got model means: {data}")
+        print(f"Min mean: {np.min(data)}")
+        print(f"Max mean: {np.max(data)}")
+        self.ground_truth = data
     
     def robot_pose_callback(self,msg: PoseStamped, id: int):
         x = msg.pose.position.x
@@ -195,6 +209,13 @@ class Visualizer(Node):
             vmax = vmin + 1e-6
         self.cost_drawn.set_clim(vmin=vmin, vmax=vmax)
         self.cost_drawn.set_data(self.cost_data)
+
+        vmin = np.min(self.ground_truth)
+        vmax = np.max(self.ground_truth)
+        if vmin == vmax: # We want to cover a range of color in case all our input is the same
+            vmax = vmin + 1e-6
+        self.gnd_truth_drawn.set_clim(vmin=vmin, vmax=vmax)
+        self.gnd_truth_drawn.set_data(self.ground_truth)
 
         for ax_id in range(self.num_plots_with_robots):
             for robot_id in range(self.num_robots):
