@@ -30,6 +30,7 @@ FetchContent_MakeAvailable(gauss_process)
 
 add_executable(orchestrator 
   src/orchestrator.cpp 
+  src/ground_truths.cpp
 )
 
 add_executable(simple_robot
@@ -82,6 +83,8 @@ target_include_directories(gp_test_func PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_compile_features(gp_test_func PUBLIC c_std_99 cxx_std_17)
+
+target_link_libraries(orchestrator Eigen3::Eigen)
 
 # Install launch files.
 install(DIRECTORY
