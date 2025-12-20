@@ -31,7 +31,13 @@ class GPTest : public rclcpp::Node
     count_(0),
     rand_gen(std::chrono::system_clock::now().time_since_epoch().count()),
     waypt_rand(0.0,0.0),
+
+    // Creates unique ptr to squared exponential bases with parameters 1.0, 1.0
     kernel_func(std::make_unique<gauss::gp::SquaredExponential>(1.0,1.0)),
+
+    // Transfers ownership from the kernel_func's unique ptr to the attribute of gauss process
+    // I.e. kernel_func no longer exists on its own (nullptr) because we moved ownership of the unique
+    // ptr away from it 
     gauss_process(std::move(kernel_func),2,1),
     ground_truth(5) {
 

@@ -20,14 +20,6 @@ class Visualizer(Node):
         self.cost_unweighted_data = np.zeros(shape=(100,100))
         self.cost_data = np.zeros(shape=(100,100))
         
-        # For now, we're still using the exponential at 5,5 as our ground truth
-        # Later we'll add a separate class or separate functions to hold our gnd truth
-        
-        # would be faster with vectorized np functions but it's a one time cost regardless
-        #for row in range(100):
-        #    for col in range(100):
-        #        self.ground_truth[row,col] = math.exp(-0.25*(pow(col/10 - 5.0,2)+3.0*pow(row/10 - 5.0,2)))
-
         self.declare_parameter("num_robots",2)
         self.num_robots = self.get_parameter("num_robots").get_parameter_value().integer_value
 
