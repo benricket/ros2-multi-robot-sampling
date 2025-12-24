@@ -8,8 +8,10 @@ The system contained in this project is coordinated rather than distributed, whe
 - Randomly generate the scalar field to sample at the start of the simulation. This takes the form of a class which inherits from the abstract `Environment` class from `src/ground_truths.cpp`, and is currently set to randomly generate an environment by summing multiple Gaussian distributions in space. If repeatability is desirable, the seed for the random number generator should be fixed.
 - Contain a Gaussian Process (GP) object (from [this library](https://github.com/andreacasalino/GaussianProcesses)) to use as a model of the environment. Data is added to this model whenever communicated by the robots, and the model is sampled when generating waypoints.
 - `upload_data_callback()`, which handles a robot reaching a waypoint and uploading data. As the orchestrator actually holds the environment model, it is still responsible for querying the environment for the sampled value using the position indicated by the robot. We add this value to the GP, draw values from the GP with a given resolution to cover the map, and generate a new waypoint to pass to the robot given our reward function.
-- `weight_model_distance()`, which returns a waypoint to sample given the position of a robot and the reward function coefficients. The reward function is a linear combination of the following --- mean of the environment according to the model, variance of the environment according to the model, distance from the robot (penalty), and square root of distance from the robot (reward). The mean and variance incentivize the sampling of higher-valued regions while also encouraging exploration, the distance penalty ensures the robot prioritizes waypoints generally nearby, and the distance reward discourages sampling too close to the current location.
+- `weight_model_distance()`, which returns a waypoint to sample given the position of a robot and the reward function coefficients. The reward function is a linear combination of the following --- mean of the environment according to the model, variance of the environment according to the model, distance from the robot (penalty), and square root of distance from any robot (reward). The mean and variance incentivize the sampling of higher-valued regions while also encouraging exploration, the distance penalty ensures the robot prioritizes waypoints generally nearby, and the distance reward discourages sampling too close to the current location or too close to locations other robots are sampling.
 - `retrain_hyperparams()`, which is called every time a set number of data points are added to the model to retrain the model hyperparameters using gradient descent. 
+
+![GIF of simulation running](docs/images/sampling.gif)
 
 The other functionality is contained in `simple_robot.cpp`, which contains a node representing a single robot in the simulation. The robot has a position, and maintains a queue of waypoints to navigate to. When the robot reaches a waypoint, it broadcasts this to the orchestrator node before continuing to the next waypoint. The function of the robot is not sophisticated --- it moves at a fixed speed, directly in the direction of the waypoint, and has no checks regarding collision with other robots. 
 
@@ -34,6 +36,8 @@ pip install -r requirements.txt
 
 ### Single-robot sampling
 
+![single robot](docs/images/single_robot_concise.png)
+
 Simulation of a single robot is largely contained in the `single_robot_send_waypoint_launch.py` launch file. To run this:
 
 - Build the project with `colcon build --packages-select adaptive_sample`
@@ -49,6 +53,12 @@ ros2 launch adaptive_sample multi_robot_launch.py num_robots:=5
 ```
 
 If no value is provided, the default value of 2 robots is used. This still requires the sim controller be used via `ros2 run adaptive_sample sim_controller.py` to initiate the simulation.
+
+### Parameter Tuning
+
+Note that the parameters describing the reward function (weight of mean, variance, distance penalty, and dispersion reward terms) are not currently tuned well and may need to be adjusted for good performance. These can be adjusted as ROS parameters when the simulation is running, e.g. `ros2 param set /orchestrator dispersion_weight 0.1`
+
+All these parameters are part of the orchestrator node, and are called mean_weight, war_weight, distance_weight, and dispersion_weight. 
 
 ### Challenges & Next Steps
 
